@@ -15,13 +15,14 @@ from oauth2client.service_account import ServiceAccountCredentials
 # https://developer.twitter.com/en/docs/tweets/timelines/api-reference/get-statuses-user_timeline
 # 
 # This method can only return up to **3,200 of a user's most recent Tweets**.
-# Native retweets of other statuses by the user is included in this total, regardless of whether include_rts is set to false when requesting this resource.
+# Native retweets of other statuses by the user is included in this total,
+# regardless of whether include_rts is set to false when requesting this resource.
 # 
-# - **Max number of tweets by request : 200**
-# - **Requests / 15-min window (app auth): 1500**
+# - ** Maximum number of tweets by request : 200 **
+# - ** Requests / 15-min window (app auth): 1500 **
 
 # General config
-NB_ACCOUNTS_TO_CHECK = 2
+NB_ACCOUNTS_TO_CHECK = 10
 
 # GSheet config
 GSHEET_ACCOUNTS_COLUMN_NB = 6
@@ -31,27 +32,21 @@ GSHEET_CREDENTIALS_FILE = './private/covid19-b40a0237c297.json'
 GSHEET_NAME = 'twitter_accounts'
 
 # Witter API and tweepy config
-SLEEP_TIME = 900 # 900 seconds = 15 minutes
-COUNT_MAX = 200 # max tweets by request
-INCLUDE_RETWEETS = False
+SLEEP_TIME = 900  # 900 seconds = 15 minutes
+COUNT_MAX = 200  # max tweets by request
+INCLUDE_RETWEETS = True
 API_CREDENTIALS = yaml.safe_load(open("./private/config.yml"))
 
 # MongoDB config config
 MONGO_BD_NAME = 'covid19'
 
-# Initialize MongoDb database
-client = pymongo.MongoClient()
-db = client[MONGO_BD_NAME]
-tweets_db = db.tweets
-
 # Get Google sheet object
 def get_sheet_object():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    creds = ServiceAccountCredentials.from_json_keyfile_name(GSHEET_CREDENTIALS_FILE, scope)
-    gspread_client = gspread.authorize(creds)
-    return gspread_client.open(GSHEET_NAME).sheet1
+    credentials = ServiceAccountCredentials.from_json_keyfile_name(GSHEET_CREDENTIALS_FILE, scope)
+    g_spread_client = gspread.authorize(credentials)
+    return g_spread_client.open(GSHEET_NAME).sheet1
 
-sheet = get_sheet_object()
 
 def tweepy_api_init():
     auth = tweepy.OAuthHandler(API_CREDENTIALS['consumer_key'], API_CREDENTIALS['consumer_secret'])
@@ -59,164 +54,169 @@ def tweepy_api_init():
     return tweepy.API(auth)
 
 
-def get_accounts_from_google_sheets(sheet):
-    
-    data = sheet.get_all_records() 
+def get_accounts_from_google_sheets():
+    data = sheet.get_all_records()
 
     # index + 2 is the row index in google sheets
     # don't take empty cells -> len(tweet[GSHEET_ACCOUNTS_COLUMN_NAME]) > 0
-    accounts = [(index + 2, tweet[GSHEET_ACCOUNTS_COLUMN_NAME], tweet[GSHEET_CONTROL_COLUMN_NAME]) 
-            for index, tweet in enumerate(data) if len(tweet[GSHEET_ACCOUNTS_COLUMN_NAME]) > 0]
-    
+    accounts = [(index + 2, tweet[GSHEET_ACCOUNTS_COLUMN_NAME], tweet[GSHEET_CONTROL_COLUMN_NAME])
+                for index, tweet in enumerate(data) if len(tweet[GSHEET_ACCOUNTS_COLUMN_NAME]) > 0]
+
     # returns a list of tuples such as : 
     # (7, '@USTreasury', '2020-04-20 16:17:32') if the date exists -> update mode
     # (2, '@realDonaldTrump', '') if the date doesn't exist -> insert mode 
-    
+
     today = datetime.now().strftime('%Y-%m-%d')
-    
+
     # select if the control date is empty or older than today
     accounts = [account for account in accounts if len(account[2]) == 0 or account[2].split()[0] < today]
-    
+
     # return up to NB_ACCOUNTS_TO_CHECK
-    
+
     if len(accounts) >= NB_ACCOUNTS_TO_CHECK:
         return accounts[:NB_ACCOUNTS_TO_CHECK]
     else:
         return accounts
 
 
-# get_accounts_from_google_sheets(sheet)
-
 def max_tweets_limit_notice(screen_name, error):
     print('Limit reached for ' + screen_name)
-    print(error.message) ### just to check the exact nature of the error
+    print(error.message)  # just to check the exact nature of the error
     print('Wait 15 minutes ...')
     time.sleep(SLEEP_TIME)
     print('New request for ' + screen_name)
 
 
-def get_oldest_id(screen_name):
-    last_two = tweets_db.find({'screen_name': screen_name}).sort('date_iso', pymongo.ASCENDING).limit(2)
+def get_last_minus_one(screen_name, sort_type='oldest'):
+    sort_parameter = pymongo.ASCENDING
+    if sort_type != 'oldest':
+        sort_parameter = pymongo.DESCENDING
+    last_two = tweets_db.find({'screen_name': screen_name}).sort('date_iso', sort_parameter).limit(2)
     try:
-        last_minus_one = last_two[1]['id']
+        last_minus_one: object = last_two[1]['id']
         return last_minus_one
-    except:
+    except IndexError as exception:
+        print(exception)
         return False
 
-def get_newest_id(screen_name):
-    last_two = tweets_db.find({'screen_name': screen_name}).sort('date_iso', pymongo.DESCENDING).limit(2)
-    try:
-        last_minus_one = last_two[1]['id']
-        return last_minus_one
-    except:
-        return False
+
+def get_newest_id(screen_name): return get_last_minus_one(screen_name, 'newest')
+
+
+def get_oldest_id(screen_name): return get_last_minus_one(screen_name, 'oldest')
 
 
 def get_initial_tweets(screen_name):
     api = tweepy_api_init()
-    all_tweets = []
-    
+
     print('Get initial request with most recent tweets for ' + screen_name)
-        
+
     try:
-    
-        new_tweets = api.user_timeline(screen_name=screen_name, 
-                                        count=COUNT_MAX, 
-                                        include_rts=INCLUDE_RETWEETS)
+
+        new_tweets = api.user_timeline(screen_name=screen_name,
+                                       count=COUNT_MAX,
+                                       tweet_mode='extended',
+                                       include_rts=INCLUDE_RETWEETS)
 
     except tweepy.TweepError as error:
-        
+
         max_tweets_limit_notice(screen_name, error)
-        
+
         print('Try again to get the initial tweets list for ' + screen_name)
-        
-        new_tweets = api.user_timeline(screen_name = screen_name, 
-                                        count=COUNT_MAX,
-                                        include_rts=INCLUDE_RETWEETS)
-    
+
+        new_tweets = api.user_timeline(screen_name=screen_name,
+                                       count=COUNT_MAX,
+                                       tweet_mode='extended',
+                                       include_rts=INCLUDE_RETWEETS)
+
     print("{} tweets scraped".format((len(new_tweets))))
-        
+
     return new_tweets
 
-def get_oldest_tweets(screen_name):     
 
+def get_oldest_tweets(screen_name):
     api = tweepy_api_init()
     all_tweets = []
-    new_tweets = ['ok'] # to initialize : len(new_tweets) should be > 0
-    
-    oldest_id = get_oldest_id(screen_name) 
-    
+    new_tweets = ['ok']  # to initialize : len(new_tweets) should be > 0
+
+    oldest_id = get_oldest_id(screen_name)
+
     # continue the procedure gets new tweets
-    while len(new_tweets) > 0:      
-        
+    while len(new_tweets) > 0:
+
         try:
-            
+
             print("Oldest tweet {}".format(oldest_id))
-            
+
             new_tweets = api.user_timeline(screen_name=screen_name,
-                                            count=COUNT_MAX,
-                                            include_rts=INCLUDE_RETWEETS,
-                                            max_id=oldest_id) # IMPORTANT
-            
+                                           count=COUNT_MAX,
+                                           tweet_mode='extended',
+                                           include_rts=INCLUDE_RETWEETS,
+                                           max_id=oldest_id)  # IMPORTANT
+
         except tweepy.TweepError as error:
-            
+
             max_tweets_limit_notice(screen_name, error)
-            
+
             print("Oldest tweet {}".format(oldest_id))
-            
+
             # we try again after 15 minutes
             new_tweets = api.user_timeline(screen_name=screen_name,
-                                            count=COUNT_MAX,
-                                            include_rts=INCLUDE_RETWEETS,
-                                            max_id=oldest_id) # IMPORTANT
+                                           count=COUNT_MAX,
+                                           tweet_mode='extended',
+                                           include_rts=INCLUDE_RETWEETS,
+                                           max_id=oldest_id)  # IMPORTANT
             continue
-        
+
         all_tweets.extend(new_tweets)
-        
+
+        # update the id of the oldest tweet less one
+        # see : https://gist.github.com/seankross/9338551
         oldest_id = all_tweets[-1].id - 1
-        
+
         print("{} tweets scraped".format((len(all_tweets))))
 
     return all_tweets
 
 
-def get_newest_tweets(screen_name):     
-
+def get_newest_tweets(screen_name):
     api = tweepy_api_init()
     all_tweets = []
-    new_tweets = ['ok'] # to initialize : len(new_tweets) should be > 0
-    
-    newest_id = get_newest_id(screen_name) 
-    
+    new_tweets = ['ok']  # to initialize : len(new_tweets) should be > 0
+
+    newest_id = get_newest_id(screen_name)
+
     # continue the procedure gets new tweets
-    while len(new_tweets) > 0:      
-        
+    while len(new_tweets) > 0:
+
         try:
-            
+
             print("Newest tweet {}".format(newest_id))
-            
+
             new_tweets = api.user_timeline(screen_name=screen_name,
-                                            count=COUNT_MAX,
-                                            include_rts=INCLUDE_RETWEETS,
-                                            since_id=newest_id) # IMPORTANT
-            
+                                           count=COUNT_MAX,
+                                           tweet_mode='extended',
+                                           include_rts=INCLUDE_RETWEETS,
+                                           since_id=newest_id)  # IMPORTANT
+
         except tweepy.TweepError as error:
-            
+
             max_tweets_limit_notice(screen_name, error)
-            
+
             print("Newest tweet {}".format(newest_id))
-            
+
             # we try again after 15 minutes
             new_tweets = api.user_timeline(screen_name=screen_name,
-                                            count=COUNT_MAX,
-                                            include_rts=INCLUDE_RETWEETS,
-                                            since_id=newest_id) # IMPORTANT
+                                           count=COUNT_MAX,
+                                           tweet_mode='extended',
+                                           include_rts=INCLUDE_RETWEETS,
+                                           since_id=newest_id)  # IMPORTANT
             continue
-        
+
         all_tweets.extend(new_tweets)
-        
+
         newest_id = all_tweets[-1].id - 1
-        
+
         print("{} tweets scraped".format((len(all_tweets))))
 
     return all_tweets
@@ -233,15 +233,15 @@ def insert_tweets_to_mongo(tweepy_tweets, screen_name):
             tweets_db.insert_one(tweet_json)
         except pymongo.errors.DuplicateKeyError:
             print("Tweet n°{} already in the database".format(tweet.id))
+            continue
 
 
 def get_tweets(accounts):
-    
     for account in accounts:
-        
+
         index, screen_name, checked_date = account
-        
-        if len(checked_date) == 0: # no date in google sheet -> insert mode
+
+        if len(checked_date) == 0:  # no date in google sheet -> insert mode
 
             # get initial tweets
             new_tweepy_tweets = get_initial_tweets(screen_name)
@@ -264,7 +264,13 @@ def get_tweets(accounts):
             sheet.update_cell(index, GSHEET_ACCOUNTS_COLUMN_NB, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 
-if __name__ == "__main__":
-    print("Executing: ", __name__)
-    accounts = get_accounts_from_google_sheets(sheet)
-    get_tweets(accounts)
+# Initialize MongoDb database
+client = pymongo.MongoClient()
+db = client[MONGO_BD_NAME]
+tweets_db = db.tweets
+
+# Get Google sheet
+sheet = get_sheet_object()
+
+# Get tweets
+get_tweets(get_accounts_from_google_sheets())
