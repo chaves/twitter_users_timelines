@@ -1,3 +1,4 @@
-private/
-.ipynb_checkpoints/
-.idea/
+private
+.ipynb_checkpoints
+.idea
+.vscode
