@@ -40,6 +40,7 @@ API_CREDENTIALS = yaml.safe_load(open("./private/config.yml"))
 # MongoDB config config
 MONGO_BD_NAME = 'covid19'
 
+
 # Get Google sheet object
 def get_sheet_object():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -129,7 +130,7 @@ def get_initial_tweets(screen_name):
                                        tweet_mode='extended',
                                        include_rts=INCLUDE_RETWEETS)
 
-    print("{} tweets scraped".format((len(new_tweets))))
+    print(f"{len(new_tweets)} tweets scraped")
 
     return new_tweets
 
@@ -144,9 +145,11 @@ def get_oldest_tweets(screen_name):
     # continue the procedure gets new tweets
     while len(new_tweets) > 0:
 
+        time.sleep(5)
+
         try:
 
-            print("Oldest tweet {}".format(oldest_id))
+            print(f"Oldest tweet {oldest_id} by {screen_name}")
 
             new_tweets = api.user_timeline(screen_name=screen_name,
                                            count=COUNT_MAX,
@@ -158,7 +161,7 @@ def get_oldest_tweets(screen_name):
 
             max_tweets_limit_notice(screen_name, error)
 
-            print("Oldest tweet {}".format(oldest_id))
+            print(f"Oldest tweet {oldest_id} by {screen_name}")
 
             # we try again after 15 minutes
             new_tweets = api.user_timeline(screen_name=screen_name,
@@ -174,7 +177,7 @@ def get_oldest_tweets(screen_name):
         # see : https://gist.github.com/seankross/9338551
         oldest_id = all_tweets[-1].id - 1
 
-        print("{} tweets scraped".format((len(all_tweets))))
+        print(f"{len(all_tweets)} tweets scraped")
 
     return all_tweets
 
@@ -189,9 +192,11 @@ def get_newest_tweets(screen_name):
     # continue the procedure gets new tweets
     while len(new_tweets) > 0:
 
+        time.sleep(5)
+
         try:
 
-            print("Newest tweet {}".format(newest_id))
+            print(f"Newest tweet {newest_id} by {screen_name}")
 
             new_tweets = api.user_timeline(screen_name=screen_name,
                                            count=COUNT_MAX,
@@ -203,7 +208,7 @@ def get_newest_tweets(screen_name):
 
             max_tweets_limit_notice(screen_name, error)
 
-            print("Newest tweet {}".format(newest_id))
+            print(f"Newest tweet {newest_id} by {screen_name}")
 
             # we try again after 15 minutes
             new_tweets = api.user_timeline(screen_name=screen_name,
@@ -215,9 +220,9 @@ def get_newest_tweets(screen_name):
 
         all_tweets.extend(new_tweets)
 
-        newest_id = all_tweets[-1].id - 1
+        newest_id = all_tweets[-1].id
 
-        print("{} tweets scraped".format((len(all_tweets))))
+        print(f"{len(all_tweets)} tweets scraped")
 
     return all_tweets
 
