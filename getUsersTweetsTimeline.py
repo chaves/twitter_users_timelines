@@ -145,8 +145,6 @@ def get_oldest_tweets(screen_name):
     # continue the procedure gets new tweets
     while len(new_tweets) > 0:
 
-        time.sleep(5)
-
         try:
 
             print(f"Oldest tweet {oldest_id} by {screen_name}")
@@ -178,6 +176,7 @@ def get_oldest_tweets(screen_name):
         oldest_id = all_tweets[-1].id - 1
 
         print(f"{len(all_tweets)} tweets scraped")
+        time.sleep(5)
 
     return all_tweets
 
@@ -191,8 +190,6 @@ def get_newest_tweets(screen_name):
 
     # continue the procedure gets new tweets
     while len(new_tweets) > 0:
-
-        time.sleep(5)
 
         try:
 
@@ -223,6 +220,7 @@ def get_newest_tweets(screen_name):
         newest_id = all_tweets[-1].id
 
         print(f"{len(all_tweets)} tweets scraped")
+        time.sleep(5)
 
     return all_tweets
 
